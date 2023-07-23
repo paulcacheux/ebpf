@@ -729,6 +729,9 @@ func (s *Spec) TypeByName(name string, typ interface{}) error {
 		}
 
 		candidate = typ
+
+		// TODO(paulcacheux): hacky way of allowing hook to multiple matches
+		break
 	}
 
 	if candidate == nil {
