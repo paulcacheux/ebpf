@@ -725,7 +725,9 @@ func (s *Spec) TypeByName(name string, typ interface{}) error {
 		}
 
 		if candidate != nil {
-			return fmt.Errorf("type %s(%T): %w", name, typ, ErrMultipleMatches)
+			if err := Equal(candidate, typ); err != nil {
+				return fmt.Errorf("type %s(%T): %w: %v", name, typ, err, ErrMultipleMatches, err)
+			}
 		}
 
 		candidate = typ
