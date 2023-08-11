@@ -49,6 +49,9 @@ type Type interface {
 	// Make a copy of the type, without copying Type members.
 	copy() Type
 
+	// Compare the Type against another. Ignores Name and any descendant Types.
+	equal(other Type) bool
+
 	// New implementations must update walkType.
 }
 
@@ -68,6 +71,26 @@ var (
 	_ Type = (*cycle)(nil)
 )
 
+// Equal compares Type a to Type b. By default, only binary equivalency is
+// checked, ignoring type names.
+func Equal(a, b Type) error {
+	if a == nil && b == nil {
+		return nil
+	}
+	if a == nil || b == nil {
+		return errors.New("one of a or b are nil")
+	}
+
+	at, bt := postorderTraversal(a, nil), postorderTraversal(b, nil)
+	for at.Next() && bt.Next() {
+		if !at.Type.equal(bt.Type) {
+			return fmt.Errorf("a: %v and b: %v differ", at.Type, bt.Type)
+		}
+	}
+
+	return nil
+}
+
 // Void is the unit type of BTF.
 type Void struct{}
 
@@ -75,6 +98,10 @@ func (v *Void) Format(fs fmt.State, verb rune) { formatType(fs, verb, v) }
 func (v *Void) TypeName() string               { return "" }
 func (v *Void) size() uint32                   { return 0 }
 func (v *Void) copy() Type                     { return (*Void)(nil) }
+func (v *Void) equal(other Type) bool {
+	_, ok := other.(*Void)
+	return ok
+}
 
 type IntEncoding byte
 
@@ -126,6 +153,16 @@ func (i *Int) copy() Type {
 	return &cpy
 }
 
+func (i *Int) equal(other Type) bool {
+	oi, ok := other.(*Int)
+	if !ok {
+		return false
+	}
+
+	return i.Size == oi.Size &&
+		i.Encoding == oi.Encoding
+}
+
 // Pointer is a pointer to another type.
 type Pointer struct {
 	Target Type
@@ -140,6 +177,11 @@ func (p *Pointer) size() uint32     { return 8 }
 func (p *Pointer) copy() Type {
 	cpy := *p
 	return &cpy
+}
+
+func (p *Pointer) equal(other Type) bool {
+	_, ok := other.(*Pointer)
+	return ok
 }
 
 // Array is an array with a fixed number of elements.
@@ -158,6 +200,14 @@ func (arr *Array) TypeName() string { return "" }
 func (arr *Array) copy() Type {
 	cpy := *arr
 	return &cpy
+}
+
+func (arr *Array) equal(other Type) bool {
+	oa, ok := other.(*Array)
+	if !ok {
+		return false
+	}
+	return arr.Nelems == oa.Nelems
 }
 
 // Struct is a compound type of consecutive members.
@@ -180,6 +230,25 @@ func (s *Struct) copy() Type {
 	cpy := *s
 	cpy.Members = copyMembers(s.Members)
 	return &cpy
+}
+
+func (s *Struct) equal(other Type) bool {
+	os, ok := other.(*Struct)
+	if !ok {
+		return false
+	}
+	if s.Size != os.Size ||
+		len(s.Members) != len(os.Members) {
+		return false
+	}
+
+	for i, m := range s.Members {
+		if !m.equal(os.Members[i]) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (s *Struct) members() []Member {
@@ -208,6 +277,25 @@ func (u *Union) copy() Type {
 	return &cpy
 }
 
+func (u *Union) equal(other Type) bool {
+	ou, ok := other.(*Union)
+	if !ok {
+		return false
+	}
+	if u.Size != ou.Size ||
+		len(u.Members) != len(ou.Members) {
+		return false
+	}
+
+	for i, m := range u.Members {
+		if !m.equal(ou.Members[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
 func (u *Union) members() []Member {
 	return u.Members
 }
@@ -216,6 +304,17 @@ func copyMembers(orig []Member) []Member {
 	cpy := make([]Member, len(orig))
 	copy(cpy, orig)
 	return cpy
+}
+
+func (m Member) equal(other Member) bool {
+	// Compare Member properties, but don't recurse into their Types. Post-order
+	// traversal takes care of flattening the graph and visiting each reachable
+	// type exactly once.
+	if m.BitfieldSize != other.BitfieldSize ||
+		m.Offset != other.Offset {
+		return false
+	}
+	return true
 }
 
 type composite interface {
@@ -270,12 +369,36 @@ type EnumValue struct {
 	Value uint64
 }
 
+func (ev EnumValue) equal(other EnumValue) bool {
+	return ev.Value == other.Value
+}
+
 func (e *Enum) size() uint32 { return e.Size }
 func (e *Enum) copy() Type {
 	cpy := *e
 	cpy.Values = make([]EnumValue, len(e.Values))
 	copy(cpy.Values, e.Values)
 	return &cpy
+}
+
+func (e *Enum) equal(other Type) bool {
+	oe, ok := other.(*Enum)
+	if !ok {
+		return false
+	}
+	if e.Size != oe.Size ||
+		e.Signed != oe.Signed ||
+		len(e.Values) != len(oe.Values) {
+		return false
+	}
+
+	for i, v := range e.Values {
+		if !v.equal(oe.Values[i]) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // has64BitValues returns true if the Enum contains a value larger than 32 bits.
@@ -330,6 +453,15 @@ func (f *Fwd) copy() Type {
 	return &cpy
 }
 
+func (f *Fwd) equal(other Type) bool {
+	of, ok := other.(*Fwd)
+	if !ok {
+		return false
+	}
+
+	return f.Kind == of.Kind
+}
+
 // Typedef is an alias of a Type.
 type Typedef struct {
 	Name string
@@ -345,6 +477,11 @@ func (td *Typedef) TypeName() string { return td.Name }
 func (td *Typedef) copy() Type {
 	cpy := *td
 	return &cpy
+}
+
+func (td *Typedef) equal(other Type) bool {
+	_, ok := other.(*Typedef)
+	return ok
 }
 
 // Volatile is a qualifier.
@@ -364,6 +501,11 @@ func (v *Volatile) copy() Type {
 	return &cpy
 }
 
+func (v *Volatile) equal(other Type) bool {
+	_, ok := other.(*Volatile)
+	return ok
+}
+
 // Const is a qualifier.
 type Const struct {
 	Type Type
@@ -381,6 +523,11 @@ func (c *Const) copy() Type {
 	return &cpy
 }
 
+func (c *Const) equal(other Type) bool {
+	_, ok := other.(*Const)
+	return ok
+}
+
 // Restrict is a qualifier.
 type Restrict struct {
 	Type Type
@@ -396,6 +543,11 @@ func (r *Restrict) qualify() Type { return r.Type }
 func (r *Restrict) copy() Type {
 	cpy := *r
 	return &cpy
+}
+
+func (r *Restrict) equal(other Type) bool {
+	_, ok := other.(*Restrict)
+	return ok
 }
 
 // Func is a function definition.
@@ -427,6 +579,15 @@ func (f *Func) copy() Type {
 	return &cpy
 }
 
+func (f *Func) equal(other Type) bool {
+	of, ok := other.(*Func)
+	if !ok {
+		return false
+	}
+
+	return f.Linkage == of.Linkage
+}
+
 // FuncProto is a function declaration.
 type FuncProto struct {
 	Return Type
@@ -444,6 +605,15 @@ func (fp *FuncProto) copy() Type {
 	cpy.Params = make([]FuncParam, len(fp.Params))
 	copy(cpy.Params, fp.Params)
 	return &cpy
+}
+
+func (fp *FuncProto) equal(other Type) bool {
+	ofp, ok := other.(*FuncProto)
+	if !ok {
+		return false
+	}
+
+	return len(fp.Params) == len(ofp.Params)
 }
 
 type FuncParam struct {
@@ -469,6 +639,15 @@ func (v *Var) copy() Type {
 	return &cpy
 }
 
+func (v *Var) equal(other Type) bool {
+	ov, ok := other.(*Var)
+	if !ok {
+		return false
+	}
+
+	return v.Linkage == ov.Linkage
+}
+
 // Datasec is a global program section containing data.
 type Datasec struct {
 	Name string
@@ -491,6 +670,25 @@ func (ds *Datasec) copy() Type {
 	return &cpy
 }
 
+func (ds *Datasec) equal(other Type) bool {
+	ods, ok := other.(*Datasec)
+	if !ok {
+		return false
+	}
+	if ds.Size != ods.Size ||
+		len(ds.Vars) != len(ods.Vars) {
+		return false
+	}
+
+	for i, v := range ds.Vars {
+		if !v.equal(ods.Vars[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // VarSecinfo describes variable in a Datasec.
 //
 // It is not a valid Type.
@@ -499,6 +697,14 @@ type VarSecinfo struct {
 	Type   Type
 	Offset uint32
 	Size   uint32
+}
+
+func (vsi VarSecinfo) equal(other VarSecinfo) bool {
+	if vsi.Offset != other.Offset ||
+		vsi.Size != other.Size {
+		return false
+	}
+	return true
 }
 
 // Float is a float of a given length.
@@ -518,6 +724,15 @@ func (f *Float) size() uint32     { return f.Size }
 func (f *Float) copy() Type {
 	cpy := *f
 	return &cpy
+}
+
+func (f *Float) equal(other Type) bool {
+	of, ok := other.(*Float)
+	if !ok {
+		return false
+	}
+
+	return f.Size == of.Size
 }
 
 // declTag associates metadata with a declaration.
@@ -540,6 +755,20 @@ func (dt *declTag) copy() Type {
 	return &cpy
 }
 
+func (dt *declTag) equal(other Type) bool {
+	odt, ok := other.(*declTag)
+	if !ok {
+		return false
+	}
+
+	if dt.Value != odt.Value ||
+		dt.Index != odt.Index {
+		return false
+	}
+
+	return true
+}
+
 // typeTag associates metadata with a type.
 type typeTag struct {
 	Type  Type
@@ -557,6 +786,15 @@ func (tt *typeTag) copy() Type {
 	return &cpy
 }
 
+func (tt *typeTag) equal(other Type) bool {
+	ott, ok := other.(*typeTag)
+	if !ok {
+		return false
+	}
+
+	return tt.Value == ott.Value
+}
+
 // cycle is a type which had to be elided since it exceeded maxTypeDepth.
 type cycle struct {
 	root Type
@@ -568,6 +806,10 @@ func (c *cycle) TypeName() string               { return "" }
 func (c *cycle) copy() Type {
 	cpy := *c
 	return &cpy
+}
+
+func (c *cycle) equal(other Type) bool {
+	return false
 }
 
 type sizer interface {

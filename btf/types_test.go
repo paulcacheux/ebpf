@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/cilium/ebpf/internal"
@@ -387,6 +388,32 @@ func TestUnderlyingType(t *testing.T) {
 			got := UnderlyingType(test.fn(want))
 			qt.Assert(t, got, qt.Equals, want)
 		})
+	}
+}
+
+func TestTypeEquality(t *testing.T) {
+	s := &Struct{Size: 12, Name: "struct", Members: []Member{
+		{Type: &Int{Name: "int", Size: 4}},
+	}}
+	s.Members = append(s.Members, Member{Name: "struct_ptr", Type: &Pointer{Target: s}})
+
+	anon := &Struct{Size: 12, Members: []Member{
+		{Type: &Int{Size: 4}},
+	}}
+	anon.Members = append(anon.Members, Member{Type: &Pointer{Target: anon}})
+
+	if err := Equal(s, anon); err != nil {
+		t.Fatal("s is not the binary equivalent of anon", err)
+	}
+
+	if runtime.GOOS == "linux" {
+		skb, err := vmlinuxSpec(t).AnyTypeByName("sk_buff")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := Equal(skb, skb); err != nil {
+			t.Fatalf("skb is not equal to itself: %s", skb)
+		}
 	}
 }
 
