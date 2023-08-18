@@ -307,7 +307,7 @@ func LoadKernelSpec() (*Spec, error) {
 	if err != nil {
 		return nil, err
 	}
-	return spec.Copy(), nil
+	return spec, nil
 }
 
 var kernelBTF struct {
