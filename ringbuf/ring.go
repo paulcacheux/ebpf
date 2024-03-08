@@ -2,12 +2,12 @@ package ringbuf
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"runtime"
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/cilium/ebpf/internal"
 	"github.com/cilium/ebpf/internal/unix"
 )
 
@@ -55,7 +55,6 @@ func (ring *ringbufEventRing) Close() {
 type ringReader struct {
 	// These point into mmap'ed memory and must be accessed atomically.
 	prod_pos, cons_pos *uint64
-	cons               uint64
 	mask               uint64
 	ring               []byte
 }
@@ -64,31 +63,10 @@ func newRingReader(cons_ptr, prod_ptr *uint64, ring []byte) *ringReader {
 	return &ringReader{
 		prod_pos: prod_ptr,
 		cons_pos: cons_ptr,
-		cons:     atomic.LoadUint64(cons_ptr),
 		// cap is always a power of two
 		mask: uint64(cap(ring)/2 - 1),
 		ring: ring,
 	}
-}
-
-func (rr *ringReader) loadConsumer() {
-	rr.cons = atomic.LoadUint64(rr.cons_pos)
-}
-
-func (rr *ringReader) storeConsumer() {
-	atomic.StoreUint64(rr.cons_pos, rr.cons)
-}
-
-// clamp delta to 'end' if 'start+delta' is beyond 'end'
-func clamp(start, end, delta uint64) uint64 {
-	if remainder := end - start; delta > remainder {
-		return remainder
-	}
-	return delta
-}
-
-func (rr *ringReader) skipRead(skipBytes uint64) {
-	rr.cons += clamp(rr.cons, atomic.LoadUint64(rr.prod_pos), skipBytes)
 }
 
 func (rr *ringReader) isEmpty() bool {
@@ -109,19 +87,39 @@ func (rr *ringReader) remaining() int {
 	return int((prod - cons) & rr.mask)
 }
 
-func (rr *ringReader) Read(p []byte) (int, error) {
-	prod := atomic.LoadUint64(rr.prod_pos)
+func (rr *ringReader) readRecord(callback func(sample []byte)) error {
+	cons := atomic.LoadUint64(rr.cons_pos)
+	pos := atomic.LoadUint64(rr.prod_pos)
 
-	n := clamp(rr.cons, prod, uint64(len(p)))
-
-	start := rr.cons & rr.mask
-
-	copy(p, rr.ring[start:start+n])
-	rr.cons += n
-
-	if prod == rr.cons {
-		return int(n), io.EOF
+	if pos <= cons {
+		return errEOR
 	}
 
-	return int(n), nil
+	len := atomic.LoadUint32((*uint32)((unsafe.Pointer)(&rr.ring[cons&rr.mask])))
+
+	if len&unix.BPF_RINGBUF_BUSY_BIT != 0 {
+		return errBusy
+	}
+
+	cons += unix.BPF_RINGBUF_HDR_SZ
+
+	// clear busy and discard bits
+	sample_len := len & ^uint32(unix.BPF_RINGBUF_BUSY_BIT|unix.BPF_RINGBUF_DISCARD_BIT)
+	aligned_len := uint64(internal.Align(sample_len, 8))
+
+	if len&unix.BPF_RINGBUF_DISCARD_BIT != 0 {
+		cons += aligned_len
+		atomic.StoreUint64(rr.cons_pos, cons)
+		return errDiscard
+	}
+
+	start := cons & rr.mask
+	end := start + uint64(sample_len)
+	sample := rr.ring[start:end]
+	callback(sample)
+
+	cons += aligned_len
+	atomic.StoreUint64(rr.cons_pos, cons)
+
+	return nil
 }
