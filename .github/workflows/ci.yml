@@ -167,8 +167,7 @@ jobs:
       - run: go install gotest.tools/gotestsum@v1.8.1
 
       - name: Test
-        # Skip TestGoarches/loong64 because the GH arm64 Go toolchain seems to be weird.
-        run: gotestsum --ignore-non-json-output-lines --junitfile junit.xml -- -exec 'sudo -E' -short -count 1 -skip '^TestGoarches/loong64$' -json ./...
+        run: gotestsum --ignore-non-json-output-lines --junitfile junit.xml -- -exec 'sudo -E' -short -count 1 -json ./...
 
       - name: Benchmark
         run: go test -exec sudo -short -run '^$' -bench . -benchtime=1x ./...
