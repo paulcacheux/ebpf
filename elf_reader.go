@@ -1409,11 +1409,11 @@ func matchSectionName(sectionName, pattern string) (extra string, found bool) {
 }
 
 func (ec *elfCode) loadSectionRelocations(sec *elf.Section, symbols []elf.Symbol) (map[uint64]elf.Symbol, error) {
-	rels := make(map[uint64]elf.Symbol)
-
 	if sec.Entsize < 16 {
 		return nil, fmt.Errorf("section %s: relocations are less than 16 bytes", sec.Name)
 	}
+
+	rels := make(map[uint64]elf.Symbol, sec.Size/sec.Entsize)
 
 	r := bufio.NewReader(sec.Open())
 	for off := uint64(0); off < sec.Size; off += sec.Entsize {
