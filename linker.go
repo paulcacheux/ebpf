@@ -78,7 +78,7 @@ func splitSymbols(insns asm.Instructions) (map[string]asm.Instructions, error) {
 		}
 
 		// New symbol, flush the old one out.
-		progs[currentSym] = slices.Clone(insns[start:i])
+		progs[currentSym] = insns[start:i:i]
 
 		if progs[sym] != nil {
 			return nil, fmt.Errorf("insns contains duplicate Symbol %s", sym)
@@ -88,7 +88,7 @@ func splitSymbols(insns asm.Instructions) (map[string]asm.Instructions, error) {
 	}
 
 	if tail := insns[start:]; len(tail) > 0 {
-		progs[currentSym] = slices.Clone(tail)
+		progs[currentSym] = tail
 	}
 
 	return progs, nil
