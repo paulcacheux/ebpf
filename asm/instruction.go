@@ -503,6 +503,11 @@ func (ins Instruction) WithSource(src fmt.Stringer) Instruction {
 	return ins
 }
 
+func (ins Instruction) WithSourceUnsafe(src fmt.Stringer) Instruction {
+	ins.Metadata.SetUnsafe(sourceMeta{}, src)
+	return ins
+}
+
 // Source returns source information about the Instruction. The field is
 // present when the compiler emits BTF line info about the Instruction and
 // usually contains the line of source code responsible for it.

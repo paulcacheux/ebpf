@@ -123,19 +123,36 @@ func AssignMetadataToInstructions(
 ) {
 	iter := insns.Iterate()
 	for iter.Next() {
-		if len(funcInfos) > 0 && funcInfos[0].Offset == iter.Offset {
-			*iter.Ins = WithFuncMetadata(*iter.Ins, funcInfos[0].Func)
-			funcInfos = funcInfos[1:]
-		}
+		if iter.Ins.Metadata.IsEmpty() {
+			if len(funcInfos) > 0 && funcInfos[0].Offset == iter.Offset {
+				iter.Ins.Metadata.SetUnsafe(funcInfoMeta{}, funcInfos[0].Func)
+				funcInfos = funcInfos[1:]
+			}
 
-		if len(lineInfos.infos) > 0 && lineInfos.infos[0].offset == iter.Offset {
-			*iter.Ins = iter.Ins.WithSource(lineInfos.infos[0].line)
-			lineInfos.infos = lineInfos.infos[1:]
-		}
+			if len(lineInfos.infos) > 0 && lineInfos.infos[0].offset == iter.Offset {
+				*iter.Ins = iter.Ins.WithSourceUnsafe(lineInfos.infos[0].line)
+				lineInfos.infos = lineInfos.infos[1:]
+			}
 
-		if len(reloInfos.infos) > 0 && reloInfos.infos[0].offset == iter.Offset {
-			iter.Ins.Metadata.Set(coreRelocationMeta{}, reloInfos.infos[0].relo)
-			reloInfos.infos = reloInfos.infos[1:]
+			if len(reloInfos.infos) > 0 && reloInfos.infos[0].offset == iter.Offset {
+				iter.Ins.Metadata.SetUnsafe(coreRelocationMeta{}, reloInfos.infos[0].relo)
+				reloInfos.infos = reloInfos.infos[1:]
+			}
+		} else {
+			if len(funcInfos) > 0 && funcInfos[0].Offset == iter.Offset {
+				*iter.Ins = WithFuncMetadata(*iter.Ins, funcInfos[0].Func)
+				funcInfos = funcInfos[1:]
+			}
+
+			if len(lineInfos.infos) > 0 && lineInfos.infos[0].offset == iter.Offset {
+				*iter.Ins = iter.Ins.WithSource(lineInfos.infos[0].line)
+				lineInfos.infos = lineInfos.infos[1:]
+			}
+
+			if len(reloInfos.infos) > 0 && reloInfos.infos[0].offset == iter.Offset {
+				iter.Ins.Metadata.Set(coreRelocationMeta{}, reloInfos.infos[0].relo)
+				reloInfos.infos = reloInfos.infos[1:]
+			}
 		}
 	}
 }

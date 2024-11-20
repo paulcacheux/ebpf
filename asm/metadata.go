@@ -66,7 +66,7 @@ func (m *Metadata) Set(key, value interface{}) {
 		return
 	}
 
-	m.head = &metaElement{key: key, value: value, next: m.head}
+	m.SetUnsafe(key, value)
 }
 
 // Get the value of a key.
@@ -77,4 +77,12 @@ func (m *Metadata) Get(key interface{}) interface{} {
 		return e.value
 	}
 	return nil
+}
+
+func (m *Metadata) IsEmpty() bool {
+	return m.head == nil
+}
+
+func (m *Metadata) SetUnsafe(key, value interface{}) {
+	m.head = &metaElement{key: key, value: value, next: m.head}
 }
