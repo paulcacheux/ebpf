@@ -116,6 +116,15 @@ func (ins *Instruction) Unmarshal(r io.Reader, bo binary.ByteOrder) (uint64, err
 
 // Marshal encodes a BPF instruction.
 func (ins Instruction) Marshal(w io.Writer, bo binary.ByteOrder) (uint64, error) {
+	var data [InstructionSize]byte
+	return ins.marshalWithBuffer(w, bo, data[:])
+}
+
+func (ins Instruction) marshalWithBuffer(w io.Writer, bo binary.ByteOrder, data []byte) (uint64, error) {
+	if len(data) != InstructionSize {
+		return 0, fmt.Errorf("buffer must be %d bytes", InstructionSize)
+	}
+
 	if ins.OpCode == InvalidOpCode {
 		return 0, errors.New("invalid opcode")
 	}
@@ -163,7 +172,6 @@ func (ins Instruction) Marshal(w io.Writer, bo binary.ByteOrder) (uint64, error)
 		return 0, err
 	}
 
-	data := make([]byte, InstructionSize)
 	data[0] = op
 	data[1] = byte(regs)
 	bo.PutUint16(data[2:4], uint16(ins.Offset))
@@ -779,8 +787,9 @@ func (insns Instructions) Marshal(w io.Writer, bo binary.ByteOrder) error {
 		return err
 	}
 
+	var data [InstructionSize]byte
 	for i, ins := range insns {
-		if _, err := ins.Marshal(w, bo); err != nil {
+		if _, err := ins.marshalWithBuffer(w, bo, data[:]); err != nil {
 			return fmt.Errorf("instruction %d: %w", i, err)
 		}
 	}
