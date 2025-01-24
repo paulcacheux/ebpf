@@ -116,6 +116,15 @@ func (ins *Instruction) Unmarshal(r io.Reader, bo binary.ByteOrder) (uint64, err
 
 // Marshal encodes a BPF instruction.
 func (ins Instruction) Marshal(w io.Writer, bo binary.ByteOrder) (uint64, error) {
+	var data [InstructionSize]byte
+	return ins.marshalWithBuffer(w, bo, data[:])
+}
+
+func (ins Instruction) marshalWithBuffer(w io.Writer, bo binary.ByteOrder, buffer []byte) (uint64, error) {
+	if len(buffer) != InstructionSize {
+		return 0, fmt.Errorf("buffer must be %d bytes", InstructionSize)
+	}
+
 	if ins.OpCode == InvalidOpCode {
 		return 0, errors.New("invalid opcode")
 	}
@@ -163,12 +172,11 @@ func (ins Instruction) Marshal(w io.Writer, bo binary.ByteOrder) (uint64, error)
 		return 0, err
 	}
 
-	data := make([]byte, InstructionSize)
-	data[0] = op
-	data[1] = byte(regs)
-	bo.PutUint16(data[2:4], uint16(ins.Offset))
-	bo.PutUint32(data[4:8], uint32(cons))
-	if _, err := w.Write(data); err != nil {
+	buffer[0] = op
+	buffer[1] = byte(regs)
+	bo.PutUint16(buffer[2:4], uint16(ins.Offset))
+	bo.PutUint32(buffer[4:8], uint32(cons))
+	if _, err := w.Write(buffer); err != nil {
 		return 0, err
 	}
 
@@ -178,9 +186,9 @@ func (ins Instruction) Marshal(w io.Writer, bo binary.ByteOrder) (uint64, error)
 
 	// The first half of the second part of a double-wide instruction
 	// must be zero. The second half carries the value.
-	bo.PutUint32(data[0:4], 0)
-	bo.PutUint32(data[4:8], uint32(ins.Constant>>32))
-	if _, err := w.Write(data); err != nil {
+	bo.PutUint32(buffer[0:4], 0)
+	bo.PutUint32(buffer[4:8], uint32(ins.Constant>>32))
+	if _, err := w.Write(buffer); err != nil {
 		return 0, err
 	}
 
@@ -779,8 +787,9 @@ func (insns Instructions) Marshal(w io.Writer, bo binary.ByteOrder) error {
 		return err
 	}
 
+	var data [InstructionSize]byte
 	for i, ins := range insns {
-		if _, err := ins.Marshal(w, bo); err != nil {
+		if _, err := ins.marshalWithBuffer(w, bo, data[:]); err != nil {
 			return fmt.Errorf("instruction %d: %w", i, err)
 		}
 	}
