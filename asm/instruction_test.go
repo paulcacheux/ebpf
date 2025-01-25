@@ -74,6 +74,25 @@ func BenchmarkWrite64BitImmediate(b *testing.B) {
 	}
 }
 
+func BenchmarkInstructionsMarshal(b *testing.B) {
+	ins := LoadImm(R0, math.MinInt32-1, DWord)
+	count := 4096
+
+	instructions := make(Instructions, count)
+	for i := range instructions {
+		instructions[i] = ins
+	}
+
+	var buf bytes.Buffer
+	for i := 0; i < b.N; i++ {
+		buf.Reset()
+
+		if err := instructions.Marshal(&buf, binary.LittleEndian); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func TestUnmarshalInstructions(t *testing.T) {
 	r := bytes.NewReader(test64bitImmProg)
 
