@@ -72,9 +72,10 @@ func loadExtInfos(r io.ReaderAt, bo binary.ByteOrder, spec *Spec) (*ExtInfos, er
 		return nil, fmt.Errorf("parsing BTF line info: %w", err)
 	}
 
+	cache := newLineInfoCache()
 	lineInfos := make(map[string]LineOffsets, len(btfLineInfos))
 	for section, blis := range btfLineInfos {
-		lineInfos[section], err = newLineInfos(blis, spec.strings)
+		lineInfos[section], err = newLineInfos(blis, spec.strings, cache)
 		if err != nil {
 			return nil, fmt.Errorf("section %s: line infos: %w", section, err)
 		}
@@ -555,11 +556,37 @@ func LoadLineInfos(reader io.Reader, bo binary.ByteOrder, recordNum uint32, spec
 		return LineOffsets{}, fmt.Errorf("parsing BTF line info: %w", err)
 	}
 
-	return newLineInfos(lis, spec.strings)
+	return newLineInfos(lis, spec.strings, nil)
 }
 
-func newLineInfo(li bpfLineInfo, strings *stringTable) (LineOffset, error) {
-	line, err := strings.Lookup(li.LineOff)
+type lineInfoCache struct {
+	cache map[Line]*Line
+}
+
+func newLineInfoCache() *lineInfoCache {
+	return &lineInfoCache{
+		cache: make(map[Line]*Line),
+	}
+}
+
+func (lc *lineInfoCache) lookup(l Line) *Line {
+	if lc == nil {
+		return &l
+	}
+
+	line, ok := lc.cache[l]
+	if ok {
+		return line
+	}
+
+	entry := &l
+	lc.cache[l] = entry
+
+	return entry
+}
+
+func newLineInfo(li bpfLineInfo, strings *stringTable, cache *lineInfoCache) (LineOffset, error) {
+	lineContent, err := strings.Lookup(li.LineOff)
 	if err != nil {
 		return LineOffset{}, fmt.Errorf("lookup of line: %w", err)
 	}
@@ -572,21 +599,23 @@ func newLineInfo(li bpfLineInfo, strings *stringTable) (LineOffset, error) {
 	lineNumber := li.LineCol >> bpfLineShift
 	lineColumn := li.LineCol & bpfColumnMax
 
+	line := Line{
+		fileName,
+		lineContent,
+		lineNumber,
+		lineColumn,
+	}
+
 	return LineOffset{
-		asm.RawInstructionOffset(li.InsnOff),
-		&Line{
-			fileName,
-			line,
-			lineNumber,
-			lineColumn,
-		},
+		Offset: asm.RawInstructionOffset(li.InsnOff),
+		Line:   cache.lookup(line),
 	}, nil
 }
 
-func newLineInfos(blis []bpfLineInfo, strings *stringTable) (LineOffsets, error) {
+func newLineInfos(blis []bpfLineInfo, strings *stringTable, cache *lineInfoCache) (LineOffsets, error) {
 	lis := make([]LineOffset, 0, len(blis))
 	for _, bli := range blis {
-		li, err := newLineInfo(bli, strings)
+		li, err := newLineInfo(bli, strings, cache)
 		if err != nil {
 			return LineOffsets{}, fmt.Errorf("offset %d: %w", bli.InsnOff, err)
 		}
