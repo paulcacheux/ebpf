@@ -51,6 +51,12 @@ type Spec struct {
 	elf *elfData
 }
 
+func (s *Spec) DbgTest(name string) {
+	if s.decoder == nil {
+		panic(fmt.Sprintf("Spec.decoder is nil: %s", name))
+	}
+}
+
 // LoadSpec opens file and calls LoadSpecFromReader on it.
 func LoadSpec(file string) (*Spec, error) {
 	fh, err := os.Open(file)

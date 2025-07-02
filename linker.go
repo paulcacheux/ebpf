@@ -163,6 +163,10 @@ func applyRelocations(insns asm.Instructions, bo binary.ByteOrder, b *btf.Builde
 		if err != nil {
 			return fmt.Errorf("load BTF for kmod %s: %w", kmod, err)
 		}
+		if spec == nil {
+			panic(fmt.Sprintf("nil spec for kmod %s", kmod))
+		}
+		spec.DbgTest(kmod)
 
 		targets = append(targets, spec)
 	}

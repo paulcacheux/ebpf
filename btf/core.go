@@ -209,7 +209,10 @@ func CORERelocate(relos []*CORERelocation, targets []*Spec, bo binary.ByteOrder,
 	// moment.
 	resolveTargetTypeID := targets[0].TypeID
 
-	for _, target := range targets {
+	for i, target := range targets {
+		if target == nil {
+			panic(fmt.Sprintf("nil target in CORERelocate: index=%d", i))
+		}
 		if bo != target.byteOrder {
 			return nil, fmt.Errorf("can't relocate %s against %s", bo, target.byteOrder)
 		}
