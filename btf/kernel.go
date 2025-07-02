@@ -211,7 +211,10 @@ func NewCache() *Cache {
 
 	modules := make(map[string]*Spec, len(globalCache.modules))
 	for name, spec := range globalCache.modules {
-		decoder, _ := rebaseDecoder(spec.decoder, kernel.decoder)
+		decoder, err := rebaseDecoder(spec.decoder, kernel.decoder)
+		if err != nil {
+			panic(fmt.Sprintf("failed to rebase decoder for module %s: %v", name, err))
+		}
 		// NB: Kernel module BTF can't contain ELF fixups because it is always
 		// read from sysfs.
 		modules[name] = &Spec{decoder: decoder}
