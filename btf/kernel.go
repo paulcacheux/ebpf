@@ -16,7 +16,7 @@ import (
 
 // globalCache amortises decoding BTF across all users of the library.
 var globalCache = struct {
-	sync.RWMutex
+	sync.Mutex
 	kernel  *Spec
 	modules map[string]*Spec
 }{
@@ -47,16 +47,13 @@ func LoadKernelSpec() (*Spec, error) {
 //
 // Does not copy Spec.
 func loadCachedKernelSpec() (*Spec, error) {
-	globalCache.RLock()
-	spec := globalCache.kernel
-	globalCache.RUnlock()
+	globalCache.Lock()
+	defer globalCache.Unlock()
 
+	spec := globalCache.kernel
 	if spec != nil {
 		return spec, nil
 	}
-
-	globalCache.Lock()
-	defer globalCache.Unlock()
 
 	spec, err := loadKernelSpec()
 	if err != nil {
@@ -83,10 +80,12 @@ func LoadKernelModuleSpec(module string) (*Spec, error) {
 //
 // Does not copy Spec.
 func loadCachedKernelModuleSpec(module string) (*Spec, error) {
-	globalCache.RLock()
-	spec := globalCache.modules[module]
-	globalCache.RUnlock()
+	// NB: This only allows a single module to be parsed at a time. Not sure
+	// it makes a difference.
+	globalCache.Lock()
+	defer globalCache.Unlock()
 
+	spec := globalCache.modules[module]
 	if spec != nil {
 		return spec, nil
 	}
@@ -95,11 +94,6 @@ func loadCachedKernelModuleSpec(module string) (*Spec, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// NB: This only allows a single module to be parsed at a time. Not sure
-	// it makes a difference.
-	globalCache.Lock()
-	defer globalCache.Unlock()
 
 	spec, err = loadKernelModuleSpec(module, base)
 	if err != nil {
@@ -199,8 +193,8 @@ type Cache struct {
 //
 // Opportunistically reuses a global cache if possible.
 func NewCache() *Cache {
-	globalCache.RLock()
-	defer globalCache.RUnlock()
+	globalCache.Lock()
+	defer globalCache.Unlock()
 
 	// This copy is either a no-op or very cheap, since the spec won't contain
 	// any inflated types.
